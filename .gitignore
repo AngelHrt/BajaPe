@@ -1,0 +1,25 @@
+# Entorno virtual
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# PyInstaller
+build/
+dist/
+*.manifest
+
+# Datos locales y pruebas
+*.log
+*.part
+*.tmp
+.env
+
+# Sistema
+.DS_Store
+Thumbs.db
+desktop.ini
