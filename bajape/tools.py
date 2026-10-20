@@ -10,14 +10,12 @@ import shutil
 import subprocess
 import threading
 import time
-import urllib.error
-import urllib.request
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from . import paths
+from . import net, paths
 
 logger = logging.getLogger("bajape.tools")
 
@@ -75,6 +73,9 @@ class ToolManager:
         self._lock = threading.RLock()
         self._cancel = threading.Event()
         self._last_progress: dict[str, float] = {}
+        # Se activa desde la ventana de preparación si el usuario acepta
+        # descargar sin validar el certificado (redes con proxy o antivirus).
+        self.allow_insecure = net.insecure_allowed()
 
     # ------------------------------------------------------------------ estado
     def locate(self) -> ToolStatus:
@@ -175,6 +176,16 @@ class ToolManager:
             # del proceso (por ejemplo, instalaciones de fnm o nvm).
             return ["--js-runtimes", f"{status.js_runtime}:{status.js_path}"]
         return ["--js-runtimes", status.js_runtime]
+
+    def tls_args(self) -> list[str]:
+        """Opciones de TLS para yt-dlp según la configuración del equipo."""
+        args: list[str] = []
+        bundle = net.ca_bundle_path()
+        if bundle is not None:
+            args += ["--ca-bundle", str(bundle)]
+        if self.allow_insecure:
+            args.append("--no-check-certificates")
+        return args
 
     def environment(self) -> dict[str, str]:
         env = os.environ.copy()
@@ -320,6 +331,7 @@ class ToolManager:
             progress,
             "ytdlp",
             "Descargando yt-dlp",
+            "yt-dlp",
         )
         version = self.ytdlp_version(ToolStatus(ytdlp=staged))
         if not version:
@@ -341,7 +353,14 @@ class ToolManager:
         downloaded = False
         for url in FFMPEG_URLS:
             try:
-                self._download(url, archive, progress, "ffmpeg", "Descargando ffmpeg")
+                self._download(
+                    url,
+                    archive,
+                    progress,
+                    "ffmpeg",
+                    "Descargando ffmpeg",
+                    "ffmpeg",
+                )
                 downloaded = True
                 break
             except ToolCancelled:
@@ -351,6 +370,8 @@ class ToolManager:
                 logger.warning("Falló la descarga de ffmpeg desde %s: %s", url, error)
                 archive.unlink(missing_ok=True)
         if not downloaded:
+            if isinstance(last_error, net.CertificateError):
+                raise last_error
             raise ToolError(f"No se pudo descargar ffmpeg: {last_error}")
 
         self._progress(progress, "ffmpeg", 0.9, "Extrayendo ffmpeg...", force=True)
@@ -406,7 +427,7 @@ class ToolManager:
         )
         archive = self.bin_dir / "deno-download.zip"
         archive.unlink(missing_ok=True)
-        self._download(url, archive, progress, "runtime", "Descargando Deno")
+        self._download(url, archive, progress, "runtime", "Descargando Deno", "Deno")
         self._progress(progress, "runtime", 0.9, "Extrayendo Deno...", force=True)
         try:
             with zipfile.ZipFile(archive) as bundle:
@@ -440,41 +461,33 @@ class ToolManager:
         progress: ProgressCallback,
         key: str,
         label: str,
+        name: str,
     ) -> None:
         self._check_cancelled()
-        partial = destination.parent / (destination.name + ".part")
-        partial.unlink(missing_ok=True)
-        request = urllib.request.Request(
-            url,
-            headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) BajaPe/1.0",
-                "Accept": "*/*",
-            },
-        )
         self._progress(progress, key, 0.0, f"{label}...", force=True)
+
+        def report(done: int, total: int) -> None:
+            self._check_cancelled()
+            fraction = (done / total) if total else -1.0
+            detail = f"{label}: {self._human(done)}"
+            if total:
+                detail += f" / {self._human(total)}"
+            self._progress(progress, key, fraction, detail)
+
         try:
-            with urllib.request.urlopen(request, timeout=45) as response, open(partial, "wb") as output:
-                total = int(response.headers.get("Content-Length") or 0)
-                done = 0
-                while True:
-                    self._check_cancelled()
-                    chunk = response.read(256 * 1024)
-                    if not chunk:
-                        break
-                    output.write(chunk)
-                    done += len(chunk)
-                    fraction = (done / total) if total else -1.0
-                    detail = f"{label}: {self._human(done)}"
-                    if total:
-                        detail += f" / {self._human(total)}"
-                    self._progress(progress, key, fraction, detail)
-            if destination.exists():
-                destination.unlink()
-            os.replace(partial, destination)
-            self._progress(progress, key, 1.0, f"{label}: completado", force=True)
-        except BaseException:
-            partial.unlink(missing_ok=True)
+            net.download(
+                url,
+                destination,
+                name=name,
+                on_progress=report,
+                check_cancel=self._check_cancelled,
+                allow_insecure=self.allow_insecure,
+            )
+        except net.DownloadError:
             raise
+        except OSError as error:
+            raise net.DownloadError(f"No se pudo descargar {name}: {error}") from error
+        self._progress(progress, key, 1.0, f"{label}: completado", force=True)
 
     # ---------------------------------------------------------------- utilidad
     def _progress(

@@ -9,6 +9,7 @@ from typing import Callable
 
 import customtkinter as ctk
 
+from .. import net
 from ..downloader import COOKIE_BROWSER_CHOICES, DownloadManager
 from ..storage import SettingsStore
 from ..tools import ToolCancelled, ToolManager, ToolStatus
@@ -67,6 +68,7 @@ class SetupDialog(ctk.CTkToplevel):
         self._bars: dict[str, ctk.CTkProgressBar] = {}
         self._details: dict[str, ctk.CTkLabel] = {}
         self._started: dict[str, bool] = {}
+        self.insecure_var = tk.BooleanVar(value=False)
 
         self.title("BajaPe - Preparación inicial")
         self.configure(fg_color=theme.BG)
@@ -165,6 +167,21 @@ class SetupDialog(ctk.CTkToplevel):
         )
         self.message_label.grid(row=10, column=0, sticky="ew", pady=(4, 0))
 
+        self.insecure_check = ctk.CTkCheckBox(
+            content,
+            text="Descargar sin verificar el certificado (menos seguro)",
+            variable=self.insecure_var,
+            font=(theme.FONT, 10),
+            text_color=theme.WARNING,
+            checkbox_width=18,
+            checkbox_height=18,
+            border_color=theme.BORDER,
+            fg_color=theme.ACCENT,
+            hover_color=theme.ACCENT_HOVER,
+        )
+        self.insecure_check.grid(row=11, column=0, sticky="w", pady=(8, 0))
+        self.insecure_check.grid_remove()
+
         self.note_label = ctk.CTkLabel(
             content,
             text="Descarga aproximada: yt-dlp 17 MB + ffmpeg 110 MB. Puede tardar unos minutos.",
@@ -174,7 +191,7 @@ class SetupDialog(ctk.CTkToplevel):
             justify="left",
             wraplength=590,
         )
-        self.note_label.grid(row=11, column=0, sticky="ew", pady=(6, 0))
+        self.note_label.grid(row=12, column=0, sticky="ew", pady=(6, 0))
 
         footer = ctk.CTkFrame(self, fg_color="transparent")
         footer.grid(row=2, column=0, sticky="ew", padx=26, pady=(10, 20))
@@ -232,6 +249,9 @@ class SetupDialog(ctk.CTkToplevel):
         self.retry_button.grid_remove()
         self.continue_button.grid_remove()
         self.exit_button.grid()
+        self.insecure_check.grid_remove()
+        if self.insecure_var.get():
+            self.tools.allow_insecure = True
         self.tools.reset_cancel()
         for key, bar in self._bars.items():
             bar.stop()
@@ -253,7 +273,7 @@ class SetupDialog(ctk.CTkToplevel):
         except ToolCancelled:
             self._messages.put(("cancelled", None))
         except Exception as error:  # noqa: BLE001
-            self._messages.put(("error", str(error)))
+            self._messages.put(("error", str(error), isinstance(error, net.CertificateError)))
 
     def _poll(self) -> None:
         if self._closing:
@@ -267,7 +287,7 @@ class SetupDialog(ctk.CTkToplevel):
                 elif kind == "done":
                     self._on_done(message[1])
                 elif kind == "error":
-                    self._on_error(message[1])
+                    self._on_error(message[1], message[2] if len(message) > 2 else False)
                 elif kind == "cancelled" and not self._closing:
                     self._on_error("La preparación fue cancelada.")
         except queue.Empty:
@@ -337,9 +357,13 @@ class SetupDialog(ctk.CTkToplevel):
         self.continue_button.grid()
         self.continue_button.focus_set()
 
-    def _on_error(self, message: str) -> None:
+    def _on_error(self, message: str, certificate: bool = False) -> None:
         self._running = False
         self.message_label.configure(text=message, text_color=theme.ERROR)
+        if certificate:
+            self.insecure_check.grid()
+        else:
+            self.insecure_check.grid_remove()
         self.retry_button.grid()
         self.continue_button.grid_remove()
 
@@ -388,6 +412,7 @@ class UpdateDialog(ctk.CTkToplevel):
         self._closing = False
         self._indeterminate = False
         self._version = ""
+        self.insecure_var = tk.BooleanVar(value=False)
 
         self.title("BajaPe - Actualizar yt-dlp")
         self.configure(fg_color=theme.BG)
@@ -454,8 +479,23 @@ class UpdateDialog(ctk.CTkToplevel):
         )
         self.message_label.grid(row=2, column=0, sticky="ew", padx=24, pady=(10, 0))
 
+        self.insecure_check = ctk.CTkCheckBox(
+            self,
+            text="Descargar sin verificar el certificado (menos seguro)",
+            variable=self.insecure_var,
+            font=(theme.FONT, 10),
+            text_color=theme.WARNING,
+            checkbox_width=18,
+            checkbox_height=18,
+            border_color=theme.BORDER,
+            fg_color=theme.ACCENT,
+            hover_color=theme.ACCENT_HOVER,
+        )
+        self.insecure_check.grid(row=3, column=0, sticky="w", padx=24, pady=(8, 0))
+        self.insecure_check.grid_remove()
+
         footer = ctk.CTkFrame(self, fg_color="transparent")
-        footer.grid(row=3, column=0, sticky="ew", padx=24, pady=(14, 20))
+        footer.grid(row=4, column=0, sticky="ew", padx=24, pady=(14, 20))
         footer.grid_columnconfigure(0, weight=1)
         self.retry_button = ctk.CTkButton(
             footer,
@@ -483,7 +523,7 @@ class UpdateDialog(ctk.CTkToplevel):
         )
         self.close_button.grid(row=0, column=2)
 
-        center_on_parent(self, master, 560, 330)
+        center_on_parent(self, master, 560, 380)
         make_modal(self)
         self.protocol("WM_DELETE_WINDOW", self._close)
         self.after(100, self._start)
@@ -496,6 +536,9 @@ class UpdateDialog(ctk.CTkToplevel):
         self._version = ""
         self.retry_button.grid_remove()
         self.message_label.configure(text="")
+        self.insecure_check.grid_remove()
+        if self.insecure_var.get():
+            self.tools.allow_insecure = True
         self.detail_label.configure(text="Descargando última versión...", text_color=theme.TEXT_MUTED)
         self.progress.stop()
         self._indeterminate = False
@@ -514,7 +557,7 @@ class UpdateDialog(ctk.CTkToplevel):
         except ToolCancelled:
             self._messages.put(("cancelled", None))
         except Exception as error:  # noqa: BLE001
-            self._messages.put(("error", str(error)))
+            self._messages.put(("error", str(error), isinstance(error, net.CertificateError)))
 
     def _poll(self) -> None:
         if self._closing:
@@ -528,7 +571,8 @@ class UpdateDialog(ctk.CTkToplevel):
                 elif kind == "done":
                     self._on_done(value)
                 elif kind == "error":
-                    self._on_error(value)
+                    message, certificate = value
+                    self._on_error(message, certificate)
         except queue.Empty:
             pass
         try:
@@ -562,13 +606,17 @@ class UpdateDialog(ctk.CTkToplevel):
         self.close_button.configure(text="Cerrar")
         self.on_done(version)
 
-    def _on_error(self, message: str) -> None:
+    def _on_error(self, message: str, certificate: bool = False) -> None:
         self._running = False
         if self._indeterminate:
             self.progress.stop()
             self._indeterminate = False
         self.detail_label.configure(text="No se pudo actualizar", text_color=theme.ERROR)
         self.message_label.configure(text=message, text_color=theme.ERROR)
+        if certificate:
+            self.insecure_check.grid()
+        else:
+            self.insecure_check.grid_remove()
         self.retry_button.grid()
 
     def _close(self) -> None:

@@ -132,6 +132,12 @@ def friendly_error(raw: str) -> str:
         hint = "El enlace no es compatible."
     elif "no space left" in lowered or "not enough space" in lowered:
         hint = "No hay espacio suficiente en el disco."
+    elif "certificate_verify_failed" in lowered or "certificate verify failed" in lowered:
+        hint = (
+            "Error de certificado TLS. Revisa la fecha de Windows o la inspección "
+            "HTTPS del antivirus/proxy. Si usas un proxy, guarda su certificado en "
+            "%LOCALAPPDATA%\\BajaPe\\ca-bundle.pem."
+        )
     if hint and hint.lower() not in clean.lower():
         return f"{hint} ({clean})"
     return clean

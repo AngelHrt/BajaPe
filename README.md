@@ -86,6 +86,7 @@ compila con PyInstaller. Para distribuir, comprime la carpeta `dist\BajaPe` comp
 | Qué | Ubicación |
 | --- | --- |
 | Herramientas (yt-dlp, ffmpeg, Deno) | `%LOCALAPPDATA%\BajaPe\bin` |
+| Certificados extra opcionales (`ca-bundle.pem`) | `%LOCALAPPDATA%\BajaPe` |
 | Ajustes | `%LOCALAPPDATA%\BajaPe\settings.json` |
 | Historial de descargas | `%LOCALAPPDATA%\BajaPe\history.json` |
 | Registro (log) | `%LOCALAPPDATA%\BajaPe\bajape.log` |
@@ -120,6 +121,24 @@ descargas en curso.
 BajaPe descarga ejecutables (yt-dlp, ffmpeg, Deno) desde fuentes oficiales. Algunos
 antivirus marcan ese comportamiento como sospechoso. Añade una exclusión para
 `%LOCALAPPDATA%\BajaPe` o para la carpeta donde tengas el `.exe`.
+
+**"No se pudo verificar el certificado de seguridad" al preparar la aplicación.**
+La descarga falla porque Windows no puede validar el certificado HTTPS de GitHub
+(error `CERTIFICATE_VERIFY_FAILED`). Suele pasar cuando un antivirus o un proxy de
+la red inspeccionan el tráfico, cuando la fecha y hora de Windows son incorrectas o
+cuando el almacén de certificados raíz está desactualizado. BajaPe ya reintenta la
+descarga con `curl.exe` y con el almacén de certificados de Windows; si aun así
+falla:
+
+1. Comprueba la fecha y hora de Windows y reinicia el equipo para sincronizarla.
+2. Instala las actualizaciones de Windows (incluyen certificados raíz nuevos).
+3. Si usas un antivirus con inspección HTTPS o un proxy, exporta su certificado
+   raíz en formato `.pem` y guárdalo como `%LOCALAPPDATA%\BajaPe\ca-bundle.pem`.
+   BajaPe y yt-dlp lo usarán automáticamente.
+4. Como última opción, marca la casilla **"Descargar sin verificar el certificado"**
+   que aparece en la ventana de preparación y pulsa **Reintentar** (menos seguro:
+   solo si confías en tu red). También puedes activarla con la variable de entorno
+   `BAJAPE_ALLOW_INSECURE_DOWNLOADS=1`.
 
 **No se actualiza yt-dlp.**
 Cierra cualquier descarga en curso: el archivo está en uso mientras se ejecuta.

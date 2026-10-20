@@ -664,6 +664,7 @@ class DownloadManager:
             str(status.ffmpeg.parent),
         ]
         command += self.tools.js_args(status)
+        command += self.tools.tls_args()
 
         options = task.options
         if options.include_playlist:
